@@ -1,0 +1,62 @@
+name: build-release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64 GCC
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Compile
+        shell: pwsh
+        run: |
+          gcc --version
+          gcc -O2 -municode -mwindows fourier-drawing.c -o fourier-drawing.exe `
+              -lcomctl32 -lcomdlg32 -lgdi32 -luser32
+          if (-not (Test-Path fourier-drawing.exe)) { throw 'build failed' }
+
+      - name: Self-test
+        shell: pwsh
+        run: |
+          .\fourier-drawing.exe --selftest
+          if ($LASTEXITCODE -ne 0) { throw "selftest failed: $LASTEXITCODE" }
+          Get-Content selftest.txt | Select-Object -Last 3
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fourier-drawing
+          path: |
+            fourier-drawing.exe
+            fourier-drawing.html
+            README.md
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            fourier-drawing.exe
+            fourier-drawing.html
+          name: ${{ github.ref_name }}
+          body: |
+            傅里叶画板正式版 ${{ github.ref_name }}。
+
+            - `fourier-drawing.exe`：Windows 单文件程序（纯 Win32/GDI，无第三方依赖，仅系统 DLL）
+            - `fourier-drawing.html`：网页版（浏览器直接打开即可使用）
+            两个版本功能一致，导出/导入的 JSON 参数文件可互相交换。
+          draft: false
+          prerelease: false

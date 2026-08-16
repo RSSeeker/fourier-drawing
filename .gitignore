@@ -1,0 +1,11 @@
+# 构建产物
+*.exe
+
+# 自测输出
+selftest.txt
+
+# 用户导出的参数文件
+fourier-circles-*.json
+
+# 临时文件
+*.tmp

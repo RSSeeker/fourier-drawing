@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>傅里叶画板 · Fourier Epicycles</title>
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#ffffff; --panel2:#e8edf3; --text:#1c2534;
+  --accent:#1d6fd1; --border:#d6dce5;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;align-items:center;gap:12px;padding:12px 22px;background:#eef1f6;border-bottom:1px solid var(--border);flex-wrap:wrap}
+header h1{margin:0;font-size:18px}
+header .sub{font-size:12px;opacity:.6}
+main{display:flex;flex-wrap:wrap;gap:20px;padding:20px;justify-content:center;align-items:flex-start}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;width:min(46vw,680px);min-width:360px}
+.panel h2{margin:0 0 12px;font-size:14px;color:var(--accent);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2 span{font-size:12px;color:var(--text);opacity:.6;font-weight:400}
+canvas{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--border);touch-action:none}
+#drawCanvas{background:#ffffff;cursor:crosshair;outline:2px solid #a9b4c2;outline-offset:0}
+#animCanvas{background:#0b0e14}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center}
+button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;transition:background .15s}
+button:hover{background:#2d3a52}
+button.primary{background:var(--accent);color:#0b0e14;border-color:transparent;font-weight:600}
+button.primary:hover{filter:brightness(1.12)}
+label.row{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+input[type=range]{width:110px;accent-color:var(--accent)}
+input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--border);border-radius:6px;background:none}
+.status{margin-top:12px;font-size:12px;line-height:1.7;opacity:.8}
+#err{color:#dc2626;margin-top:6px;font-size:12px;min-height:1em}
+@media (max-width:960px){.panel{width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔄 傅里叶画板</h1>
+  <span class="sub">手绘图案 → 用旋转的圆（傅里叶级数）近似描绘 · 多笔画独立动画 · 轨迹渐隐 · 导出 / 导入圆参数</span>
+</header>
+<main>
+  <section class="panel">
+    <h2>① 绘制图案 <span id="drawInfo">笔画 0</span></h2>
+    <canvas id="drawCanvas" width="640" height="640"></canvas>
+    <div class="controls">
+      <button id="btnCompute" class="primary">▶ 生成傅里叶动画</button>
+      <button id="btnDemoHeart">🎯 心形示例</button>
+      <button id="btnDemoSpiral">🌪 螺旋示例</button>
+      <button id="btnUndo">↩ 撤销</button>
+      <button id="btnClearDraw">🗑 清空</button>
+      <label class="row">颜色<input type="color" id="penColor" value="#111827" /></label>
+      <label class="row">粗细<input type="range" id="penSize" min="1" max="20" value="4" /></label>
+    </div>
+  </section>
+  <section class="panel">
+    <h2>② 傅里叶圆轮 <span id="animInfo"></span></h2>
+    <canvas id="animCanvas" width="640" height="640"></canvas>
+    <div class="controls">
+      <button id="btnPlay" class="primary">⏸ 暂停</button>
+      <button id="btnReset">↺ 重置动画</button>
+      <label class="row">圈数<input type="range" id="numCircles" min="1" max="400" value="120" /><span id="numCirclesVal">120</span></label>
+      <label class="row">速度<input type="range" id="speed" min="0.02" max="2" step="0.01" value="0.35" /><span id="speedVal">0.35</span></label>
+      <label class="row"><input type="checkbox" id="showCircles" checked />圆</label>
+      <label class="row"><input type="checkbox" id="showSpokes" checked />连线</label>
+      <label class="row"><input type="checkbox" id="showTrail" checked />轨迹</label>
+      <label class="row"><input type="checkbox" id="showRef" />参考线</label>
+      <label class="row"><input type="checkbox" id="chkFade" />渐隐</label>
+      <button id="btnExport">💾 导出圆参数</button>
+      <button id="btnCopy">📋 复制参数</button>
+      <button id="btnImport">📂 载入圆参数</button>
+      <input type="file" id="fileInput" accept=".json,application/json" style="display:none" />
+    </div>
+    <div class="status" id="status">提示：在左侧画板绘制图案（可画多个笔画），再点击「生成傅里叶动画」；导出/载入为 JSON 圆参数（v2 多笔画，兼容旧版）。</div>
+    <div id="err"></div>
+  </section>
+</main>
+<script>
+"use strict";
+/* ============================================================================
+   傅里叶画板（网页版，与 exe 版功能一致）：
+   - 多笔画独立动画：每个笔画独立重采样 → 闭合 → DFT → 自己的圆轮/轨迹
+   - 闭合路径：追加返回段消除开放笔画的吉布斯振荡（开头的异常直线）
+   - 轨迹渐隐：每笔画一种颜色，勾选后由亮渐暗
+   - 导出 / 导入 v2 JSON（strokes 数组 + strokeCount），兼容 v1 旧格式
+   ========================================================================== */
+
+// ================= 纯算法与纯数据函数（供自测提取，勿依赖 DOM） =================
+// ==== PURE ====
+const N_SAMP=2048;                  // 每笔画重采样点数
+const N_EXT=N_SAMP/16|0;            // 闭合返回段样本数（128）
+const MAX_PERIOD=N_SAMP+N_EXT;      // 动画周期上限（2176）
+const MAX_CIRCLES=400;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+// 每个笔画的轨迹配色（黑色动画区上的亮色系，保证黑底可见）
+const palette=['#4ea1ff','#5adc82','#ffbe50','#c882ff','#50dcdc','#ff8ca0','#bedc5a','#ffa046'];
+
+function colLerp(h1,h2,t){
+  const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const a=p(h1), b=p(h2);
+  return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
+}
+
+// 把点列按弧长均匀重采样为 N 个点，输出 [x,y] 数组
+function resample(pts,N){
+  if(pts.length<2) return Array.from({length:N},(_,i)=>[pts[0]?pts[0].x:0, pts[0]?pts[0].y:0]);
+  const lens=[0];
+  for(let i=1;i<pts.length;i++) lens.push(lens[i-1]+Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y));
+  const total=lens[lens.length-1];
+  if(total<1e-6) return Array.from({length:N},()=>[pts[0].x,pts[0].y]);
+  const out=[]; let j=0;
+  for(let i=0;i<N;i++){
+    const target=total*i/N;
+    while(j<lens.length-2 && lens[j+1]<target) j++;
+    const seg=lens[j+1]-lens[j]||1e-9;
+    const t=clamp((target-lens[j])/seg,0,1);
+    out.push([pts[j].x+(pts[j+1].x-pts[j].x)*t, pts[j].y+(pts[j+1].y-pts[j].y)*t]);
+  }
+  return out;
+}
+
+// 离散傅里叶变换：X[k]=(1/N)Σ x[n]·e^{-2πikn/N}；k 归一化到 [-N/2,N/2)，按模长降序返回
+function dft(points){
+  const N=points.length, coeffs=[];
+  for(let k=0;k<N;k++){
+    const w=2*Math.PI*k/N; let re=0,im=0;
+    for(let n=0;n<N;n++){
+      const th=w*n, c=Math.cos(th), s=Math.sin(th);
+      re += points[n][0]*c + points[n][1]*s;
+      im += points[n][1]*c - points[n][0]*s;
+    }
+    re/=N; im/=N;
+    coeffs.push({k: k<=N/2? k : k-N, re, im, mag:Math.hypot(re,im)});
+  }
+  coeffs.sort((a,b)=> b.mag-a.mag || Math.abs(a.k)-Math.abs(b.k));
+  return coeffs;
+}
+
+// 圆链：返回每个圆末端坐标（out[i] = 前 i+1 个圆的向量和），最后一个即画笔位置
+function chainAt(circles,n,N){
+  const out=[]; let x=0,y=0;
+  for(const c of circles){
+    const a=c.phase+2*Math.PI*c.k*n/N;
+    x+=c.radius*Math.cos(a); y+=c.radius*Math.sin(a);
+    out.push({x,y});
+  }
+  return out;
+}
+
+// 平均重建误差（像素）：在 path[0..pathN) 上用前 M 个圆评估，重建周期为 period
+function approxError(path,pathN,circles,M,period){
+  let sum=0;
+  for(let i=0;i<pathN;i++){
+    const th0=2*Math.PI*i/period; let x=0,y=0;
+    for(let j=0;j<M;j++){ const c=circles[j]; const a=c.phase+c.k*th0; x+=c.radius*Math.cos(a); y+=c.radius*Math.sin(a); }
+    sum+=Math.hypot(x-path[i][0], y-path[i][1]);
+  }
+  return sum/pathN;
+}
+
+// 从全量系数（按模长降序）取前 M 个生成圆
+function makeCirclesFromFull(full,M){
+  return full.slice(0,M).map(c=>({
+    k:c.k, re:c.re, im:c.im,
+    radius:c.radius ?? c.mag, phase:c.phase ?? Math.atan2(c.im,c.re)
+  }));
+}
+
+// 构建一个笔画的动画：重采样 → 闭合（追加从末尾回起点的返回段）→ DFT。
+// 闭合消除了开放笔画周期延拓的跳变 → 消除吉布斯振荡产生的异常直线。
+function buildAnim(pts,M){
+  const N=N_SAMP, N_total=MAX_PERIOD;
+  const path=resample(pts,N);
+  const ext=path.map(p=>[p[0],p[1]]);
+  const p0=path[0], p1=path[N-1];
+  for(let i=0;i<N_EXT;i++){
+    const t=(i+1)/(N_EXT+1);
+    ext.push([p1[0]+(p0[0]-p1[0])*t, p1[1]+(p0[1]-p1[1])*t]);
+  }
+  const full=dft(ext);
+  const m=Math.min(M,MAX_CIRCLES,N_total);
+  return {
+    full, fullN:N_total,
+    path, pathN:N, N:N_total, N_stroke:N,
+    n:0, trail:[],
+    circles:makeCirclesFromFull(full,m), M:m
+  };
+}
+
+// 导出 v2 JSON（多笔画）；无动画返回 null
+function exportStrokesJSON(anims){
+  if(!anims.length) return null;
+  return JSON.stringify({
+    app:'fourier-drawing', version:2,
+    description:'傅里叶画板导出的圆参数（v2 多笔画）。strokes[i]={sampleCount(动画周期), strokeCount(笔画段样本数), circles:[{k,radius,phase,re,im}], path:[[x,y]]}',
+    strokes:anims.map(a=>({
+      sampleCount:a.N,
+      strokeCount:a.N_stroke,
+      circles:a.circles.map(c=>({
+        k:c.k, radius:+c.radius.toFixed(6), phase:+c.phase.toFixed(6),
+        re:+c.re.toFixed(6), im:+c.im.toFixed(6)
+      })),
+      path:a.path.map(p=>[+p[0].toFixed(2), +p[1].toFixed(2)])
+    }))
+  });
+}
+
+// 解析一个 stroke 对象（circles + path + sampleCount + strokeCount）→ 动画
+// 兼容新格式（含 strokeCount）与旧格式（无 strokeCount：有路径则自动闭合重算）
+function parseStroke(obj){
+  let list=obj.circles ?? obj.coefficients ?? obj.epicycles;
+  if(!Array.isArray(list) || !list.length) throw new Error('笔画缺少 circles 数组');
+  const norm=list.map(c=>{
+    let re=c.re, im=c.im;
+    if((re===undefined||im===undefined) && (c.radius!==undefined || c.mag!==undefined)){
+      const r=c.radius ?? c.mag, ph=c.phase ?? 0;
+      re=r*Math.cos(ph); im=r*Math.sin(ph);
+    }
+    const k=Math.round(c.k ?? c.freq ?? 0);
+    re=re??0; im=im??0;
+    return {k, re, im, radius:Math.hypot(re,im), phase:Math.atan2(im,re)};
+  }).sort((a,b)=> b.radius-a.radius || Math.abs(a.k)-Math.abs(b.k));
+  let N=Math.round(obj.sampleCount||0);
+  if(N<16) N=16;
+  if(N>MAX_PERIOD) N=MAX_PERIOD;
+  let N_stroke=Math.round(obj.strokeCount||0);
+  let rawPath=(Array.isArray(obj.path) && obj.path.length>1) ? obj.path : [];
+  if(rawPath.length && typeof rawPath[0]==='object' && !Array.isArray(rawPath[0])) rawPath=rawPath.map(p=>[p.x,p.y]);
+  const pathPts=rawPath.map(p=>({x:p[0],y:p[1]}));
+  if(!N_stroke){
+    /* 旧格式：sampleCount 即笔画样本数。有路径 → 重新闭合 + DFT（应用修复）；否则直接用文件系数 */
+    if(pathPts.length>1){
+      N_stroke=N; if(N_stroke>N_SAMP) N_stroke=N_SAMP;
+      const path=resample(pathPts,N_stroke);
+      const ext=path.map(p=>[p[0],p[1]]);
+      const p0=path[0], p1=path[N_stroke-1];
+      for(let i=0;i<N_EXT;i++){
+        const t=(i+1)/(N_EXT+1);
+        ext.push([p1[0]+(p0[0]-p1[0])*t, p1[1]+(p0[1]-p1[1])*t]);
+      }
+      const full=dft(ext);
+      const N_total=N_stroke+N_EXT;
+      const m=Math.min(norm.length,MAX_CIRCLES,N_total);
+      return {full, fullN:N_total, path, pathN:N_stroke, N:N_total, N_stroke,
+              n:0, trail:[], circles:makeCirclesFromFull(full,m), M:m};
+    }
+    return {full:norm, fullN:norm.length, path:[], pathN:0, N, N_stroke:N,
+            n:0, trail:[],
+            circles:norm.slice(0,Math.min(norm.length,MAX_CIRCLES)),
+            M:Math.min(norm.length,MAX_CIRCLES)};
+  }
+  /* 新格式：直接用文件系数（已含闭合） */
+  if(N_stroke>N_SAMP) N_stroke=N_SAMP;
+  const m=Math.min(norm.length,MAX_CIRCLES,N);
+  const anim={full:norm, fullN:norm.length, path:[], pathN:0, N, N_stroke,
+              n:0, trail:[], circles:norm.slice(0,m), M:m};
+  if(pathPts.length>1){
+    anim.path=resample(pathPts,N_stroke);
+    anim.pathN=N_stroke;
+  }
+  return anim;
+}
+
+// 解析 JSON 文本 → 动画数组（v2 strokes 数组，或 v1 顶层 circles）
+function importStrokesJSON(text){
+  let obj; try{ obj=JSON.parse(text); }catch(e){ throw new Error('JSON 解析失败：'+e.message); }
+  const anims=[];
+  if(obj.strokes && Array.isArray(obj.strokes)){
+    for(const s of obj.strokes) anims.push(parseStroke(s));
+  } else {
+    anims.push(parseStroke(obj));
+  }
+  if(!anims.length) throw new Error('文件不含任何笔画');
+  return anims;
+}
+// ==== END PURE ====
+
+// ================= DOM 工具 & 画布 =================
+const $=id=>document.getElementById(id);
+const W=640, H=640;
+const drawCanvas=$('drawCanvas'), animCanvas=$('animCanvas');
+const dctx=drawCanvas.getContext('2d'), actx=animCanvas.getContext('2d');
+function fitCanvas(cv,cx){
+  const dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+fitCanvas(drawCanvas,dctx);
+fitCanvas(animCanvas,actx);
+
+// ================= 绘制输入 =================
+const strokes=[];                 // 每一笔 {pts:[{x,y}], color, size}
+let cur=[], drawing=false, lastPt=null;
+const penOpt=()=>({color:$('penColor').value, size:parseFloat($('penSize').value)});
+
+function canvasPos(e){
+  const r=drawCanvas.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*W/r.width, y:(e.clientY-r.top)*H/r.height};
+}
+drawCanvas.addEventListener('pointerdown',e=>{
+  drawing=true;
+  try{ drawCanvas.setPointerCapture(e.pointerId); }catch(_){}
+  lastPt=canvasPos(e); cur=[lastPt];
+  const p=penOpt();
+  dctx.fillStyle=p.color;
+  dctx.beginPath(); dctx.arc(lastPt.x,lastPt.y,p.size/2,0,Math.PI*2); dctx.fill();
+});
+drawCanvas.addEventListener('pointermove',e=>{
+  if(!drawing) return;
+  const p=canvasPos(e);
+  if(Math.hypot(p.x-lastPt.x,p.y-lastPt.y)<0.5) return;
+  const po=penOpt();
+  dctx.strokeStyle=po.color; dctx.lineWidth=po.size; dctx.lineCap='round'; dctx.lineJoin='round';
+  dctx.beginPath(); dctx.moveTo(lastPt.x,lastPt.y); dctx.lineTo(p.x,p.y); dctx.stroke();
+  cur.push(p); lastPt=p;
+});
+function endStroke(){
+  if(!drawing) return;
+  drawing=false;
+  if(cur.length) strokes.push({pts:cur, color:$('penColor').value, size:parseFloat($('penSize').value)});
+  cur=[]; updateDrawInfo();
+}
+drawCanvas.addEventListener('pointerup',endStroke);
+drawCanvas.addEventListener('pointercancel',endStroke);
+
+function redrawDraw(){
+  dctx.clearRect(0,0,W,H);
+  for(const st of strokes){
+    dctx.strokeStyle=st.color; dctx.lineWidth=st.size; dctx.lineCap='round'; dctx.lineJoin='round';
+    dctx.beginPath();
+    st.pts.forEach((p,i)=> i? dctx.lineTo(p.x,p.y) : dctx.moveTo(p.x,p.y));
+    dctx.stroke();
+  }
+  updateDrawInfo();
+}
+function updateDrawInfo(){
+  const len=strokes.reduce((s,st)=>s+st.pts.length,0);
+  $('drawInfo').textContent=`笔画 ${strokes.length} · 点 ${len}`;
+}
+
+// ================= 动画状态（每笔画一个动画） =================
+const state={anims:[], playing:true};
+function clearAnim(){
+  state.anims=[]; state.playing=true;
+  $('btnPlay').textContent='⏸ 暂停';
+  $('animInfo').textContent='';
+}
+function refreshCircleSlice(){
+  /* 圈数滑杆变化：从每笔画的 full 重新切片，重置相位与轨迹 */
+  const v=parseInt($('numCircles').value);
+  $('numCirclesVal').textContent=v;
+  for(const a of state.anims){
+    const m=Math.min(v, a.fullN, MAX_CIRCLES);
+    a.M=m; a.circles=makeCirclesFromFull(a.full,m);
+    a.n=0; a.trail.length=0;
+  }
+}
+
+// ================= 傅里叶变换（多笔画） =================
+function compute(){
+  if(!strokes.length){ setErr('请先在左侧画板绘制图案'); return; }
+  setErr('');
+  const M=parseInt($('numCircles').value);
+  const anims=[];
+  for(const st of strokes){
+    if(st.pts.length<2) continue;   /* 单点笔画跳过 */
+    anims.push(buildAnim(st.pts,M));
+  }
+  if(!anims.length){ setErr('笔画点数不足，无法生成动画'); return; }
+  state.anims=anims;
+  state.playing=true;
+  $('btnPlay').textContent='⏸ 暂停';
+  $('animInfo').textContent=`${anims.length} 笔画 · ${M} 圆`;
+  let errSum=0;
+  for(const a of anims) errSum+=approxError(a.path,a.N_stroke,a.circles,a.M,a.N);
+  const err=errSum/anims.length;
+  setStatus(`${anims.length} 个笔画 × ${M} 个圆 · 平均误差 ${err.toFixed(1)}px（画布 ${(err/W*100).toFixed(2)}%）`);
+}
+$('btnCompute').onclick=compute;
+$('btnClearDraw').onclick=()=>{ strokes.length=0; redrawDraw(); clearAnim(); setStatus('画板已清空'); };
+$('btnUndo').onclick=()=>{ strokes.pop(); redrawDraw(); };
+
+// ================= 动画循环 =================
+let lastT=0;
+function frame(ts){
+  const dt=lastT? Math.min((ts-lastT)/1000,0.05) : 0;
+  lastT=ts;
+  if(state.playing && state.anims.length){
+    const sp=parseFloat($('speed').value);
+    for(const a of state.anims){
+      a.n += a.N*sp*dt;
+      if(a.n>=a.N){ a.n-=a.N; a.trail.length=0; }
+    }
+  }
+  drawAnimation();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function drawAnimation(){
+  actx.clearRect(0,0,W,H);
+  const anims=state.anims;
+  if(!anims.length){
+    actx.fillStyle='rgba(255,255,255,0.35)';
+    actx.font='15px sans-serif'; actx.textAlign='center'; actx.textBaseline='middle';
+    actx.fillText('暂无数据',W/2,H/2-10);
+    actx.fillText('在左侧绘制图案 → 点击「生成傅里叶动画」',W/2,H/2+16);
+    return;
+  }
+  const fade=$('chkFade').checked;
+  for(let si=0; si<anims.length; si++){
+    const a=anims[si];
+    if(a.M<=0) continue;
+    const color=palette[si%8];
+    const chain=chainAt(a.circles,a.n,a.N);
+    const pen=chain[chain.length-1];
+    /* 只在笔画段记录轨迹：返回段扫描不留下线条 */
+    if(state.playing && a.n<a.N_stroke){
+      a.trail.push(pen);
+      if(a.trail.length>N_SAMP+4) a.trail.splice(0,a.trail.length-(N_SAMP+4));
+    }
+    /* 参考路径（淡） */
+    if($('showRef').checked && a.path.length){
+      actx.strokeStyle='rgba(255,255,255,0.08)'; actx.lineWidth=1.5;
+      actx.beginPath();
+      a.path.forEach((p,i)=> i? actx.lineTo(p[0],p[1]) : actx.moveTo(p[0],p[1]));
+      actx.stroke();
+    }
+    /* 圆 */
+    if($('showCircles').checked){
+      actx.strokeStyle='rgba(130,160,210,0.40)'; actx.lineWidth=1;
+      for(let i=0;i<a.circles.length;i++){
+        const c=a.circles[i];
+        if(c.radius<=0.4) continue;
+        const cx=i? chain[i-1].x:0, cy=i? chain[i-1].y:0;
+        actx.beginPath(); actx.arc(cx,cy,c.radius,0,Math.PI*2); actx.stroke();
+      }
+    }
+    /* 辐条（圆心→末端连线） */
+    if($('showSpokes').checked){
+      actx.strokeStyle='rgba(255,255,255,0.20)'; actx.lineWidth=1;
+      actx.beginPath();
+      for(let i=0;i<a.circles.length;i++){
+        const cx=i? chain[i-1].x:0, cy=i? chain[i-1].y:0;
+        actx.moveTo(cx,cy); actx.lineTo(chain[i].x,chain[i].y);
+      }
+      actx.stroke();
+    }
+    /* 轨迹（实色或渐隐） */
+    if($('showTrail').checked && a.trail.length>1){
+      if(fade){
+        const bands=32;
+        for(let b=0;b<bands;b++){
+          const i0=Math.floor(b*(a.trail.length-1)/(bands-1));
+          let i1=Math.floor((b+1)*(a.trail.length-1)/(bands-1));
+          if(i1<=i0) i1=i0+1;
+          if(i1>=a.trail.length) i1=a.trail.length-1;
+          if(i1<=i0) continue;
+          actx.strokeStyle=colLerp('#0c121c',color,b/(bands-1));
+          actx.lineWidth=2; actx.lineJoin='round'; actx.lineCap='round';
+          actx.beginPath();
+          for(let i=i0;i<=i1;i++){ const p=a.trail[i]; i===i0? actx.moveTo(p.x,p.y) : actx.lineTo(p.x,p.y); }
+          actx.stroke();
+        }
+      } else {
+        actx.strokeStyle=color; actx.lineWidth=2; actx.lineJoin='round'; actx.lineCap='round';
+        actx.beginPath();
+        a.trail.forEach((p,i)=> i? actx.lineTo(p.x,p.y) : actx.moveTo(p.x,p.y));
+        actx.stroke();
+      }
+    }
+    /* 笔尖 */
+    actx.fillStyle=color;
+    actx.beginPath(); actx.arc(pen.x,pen.y,4,0,Math.PI*2); actx.fill();
+    actx.strokeStyle='rgba(255,255,255,0.40)'; actx.lineWidth=1.5;
+    actx.beginPath(); actx.arc(pen.x,pen.y,8,0,Math.PI*2); actx.stroke();
+  }
+}
+
+// ================= 播放控制 =================
+$('btnPlay').onclick=()=>{
+  if(!state.anims.length){ setErr('还没有可播放的动画，请先生成'); return; }
+  state.playing=!state.playing;
+  $('btnPlay').textContent=state.playing? '⏸ 暂停' : '▶ 播放';
+};
+$('btnReset').onclick=()=>{
+  for(const a of state.anims){ a.n=0; a.trail.length=0; }
+};
+$('speed').oninput=()=>{ $('speedVal').textContent=parseFloat($('speed').value).toFixed(2); };
+$('numCircles').oninput=refreshCircleSlice;
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space' && e.target===document.body){ e.preventDefault(); $('btnPlay').click(); }
+});
+
+// ================= 导出 / 导入 =================
+$('btnExport').onclick=()=>{
+  const json=exportStrokesJSON(state.anims);
+  if(json==null){ setErr('当前没有可导出的圆参数（请先生成傅里叶动画）'); return; }
+  const blob=new Blob([json],{type:'application/json'});
+  const a=document.createElement('a');
+  const d=new Date();
+  a.href=URL.createObjectURL(blob);
+  a.download=`fourier-circles-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  setStatus('圆参数已导出为 JSON 文件 ✓');
+};
+$('btnCopy').onclick=async()=>{
+  const json=exportStrokesJSON(state.anims);
+  if(json==null){ setErr('当前没有可导出的圆参数（请先生成傅里叶动画）'); return; }
+  try{ await navigator.clipboard.writeText(json); setStatus('圆参数已复制到剪贴板 ✓'); }
+  catch(e){ setErr('复制失败：'+e.message); }
+};
+
+function applyImportedAnims(anims){
+  state.anims=anims;
+  state.playing=true;
+  $('btnPlay').textContent='⏸ 暂停';
+  const m0=anims.length? anims[0].M : 0;
+  $('animInfo').textContent=`${anims.length} 笔画 · ${m0} 圆`;
+  /* 把每个笔画的路径画回左侧画板 */
+  strokes.length=0;
+  for(const a of anims){
+    if(a.path.length) strokes.push({pts:a.path.map(p=>({x:p[0],y:p[1]})), color:'#111827', size:4});
+  }
+  redrawDraw();
+  const c=clamp(m0,1,400);
+  $('numCircles').value=c;
+  $('numCirclesVal').textContent=c;
+  setStatus(`已载入 ${anims.length} 个笔画（每笔 ${m0} 个圆），动画已开始 ✓`);
+}
+$('btnImport').onclick=()=> $('fileInput').click();
+$('fileInput').onchange=()=>{
+  const f=$('fileInput').files[0];
+  if(!f) return;
+  const reader=new FileReader();
+  reader.onload=()=>{ try{ applyImportedAnims(importStrokesJSON(reader.result)); }catch(e){ setErr('导入失败：'+e.message); } };
+  reader.readAsText(f);
+  $('fileInput').value='';
+};
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>{
+  e.preventDefault();
+  const f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if(!f) return;
+  const reader=new FileReader();
+  reader.onload=()=>{ try{ applyImportedAnims(importStrokesJSON(reader.result)); }catch(err){ setErr('导入失败：'+err.message); } };
+  reader.readAsText(f);
+});
+
+// ================= 示例图案 =================
+function fitToCanvas(pts,targetSize){
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  for(const p of pts){ minX=Math.min(minX,p[0]); minY=Math.min(minY,p[1]); maxX=Math.max(maxX,p[0]); maxY=Math.max(maxY,p[1]); }
+  const w=Math.max(maxX-minX,1), h=Math.max(maxY-minY,1);
+  const s=Math.min(targetSize/w,targetSize/h);
+  const cx=(maxX+minX)/2, cy=(maxY+minY)/2;
+  return pts.map(p=>[W/2+(p[0]-cx)*s, H/2-(p[1]-cy)*s]);
+}
+function heartPts(){
+  const pts=[];
+  for(let i=0;i<600;i++){
+    const t=2*Math.PI*i/600;
+    const s=Math.sin(t);
+    pts.push([16*s*s*s, 13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t)]);
+  }
+  return fitToCanvas(pts,480);
+}
+function spiralPts(){
+  const pts=[]; const turns=3, nPts=1400;
+  for(let i=0;i<nPts;i++){
+    const t=turns*2*Math.PI*i/(nPts-1);
+    const r=6+170*t/(turns*2*Math.PI);
+    pts.push([r*Math.cos(t), r*Math.sin(t)]);
+  }
+  return fitToCanvas(pts,520);
+}
+function loadDemoPath(pts){
+  strokes.length=0;
+  strokes.push({pts:pts.map(p=>({x:p[0],y:p[1]})), color:'#111827', size:4});
+  redrawDraw();
+  compute();
+}
+$('btnDemoHeart').onclick=()=>loadDemoPath(heartPts());
+$('btnDemoSpiral').onclick=()=>loadDemoPath(spiralPts());
+
+// ================= 状态显示 =================
+function setStatus(s){ $('status').textContent='📌 '+s; }
+function setErr(s){ $('err').textContent='⚠ '+s; }
+
+// ================= 浏览器自测（URL 加 #selftest 触发） =================
+if(location.hash==='#selftest'){
+  try{
+    const out=[];
+    const T=(c,m)=>out.push((c?'PASS: ':'FAIL: ')+m);
+    // 圆形 DFT
+    {
+      const N=256, R=50, ctr=100, pts=[];
+      for(let n=0;n<N;n++){ const a=2*Math.PI*n/N; pts.push([ctr+R*Math.cos(a), ctr+R*Math.sin(a)]); }
+      const cs=dft(pts);
+      const c0=cs.find(c=>c.k===0), c1=cs.find(c=>c.k===1), cn=cs.find(c=>c.k===-1);
+      T(c0&&Math.abs(c0.re-100)<1e-6&&Math.abs(c0.im-100)<1e-6,'圆形 c0=圆心');
+      T(c1&&Math.abs(c1.re-50)<1e-6&&Math.abs(c1.im)<1e-6,'圆形 c1=半径');
+      T(cn&&cn.mag<1e-6,'圆形 c_{-1}≈0');
+      const cir=cs.slice(0,2).map(c=>({k:c.k,radius:c.mag,phase:Math.atan2(c.im,c.re)}));
+      T(approxError(pts,N,cir,2,N)<1e-6,'2 圆重建圆形误差≈0');
+    }
+    // 心形 + 闭合：开放弧线轨迹无异常长段
+    {
+      const arc=[];
+      for(let i=0;i<=200;i++){ const t=i/200, th=Math.PI+Math.PI*t; arc.push({x:300+200*Math.cos(th),y:300+200*Math.sin(th)}); }
+      const a=buildAnim(arc,120);
+      let maxSeg=0;
+      for(let f=0;f<300;f++){
+        a.n+=a.N*0.35*0.016;
+        if(a.n>=a.N){ a.n-=a.N; a.trail.length=0; }
+        const ch=chainAt(a.circles,a.n,a.N);
+        const pen=ch[ch.length-1];
+        if(a.n<a.N_stroke){
+          if(a.trail.length){ maxSeg=Math.max(maxSeg,Math.hypot(pen.x-a.trail[a.trail.length-1].x,pen.y-a.trail[a.trail.length-1].y)); }
+          a.trail.push(pen);
+        }
+      }
+      out.push(`闭合后最大轨迹段长: ${maxSeg.toFixed(1)}px`);
+      T(maxSeg<10,'闭合后无异常长轨迹段');
+      T(approxError(a.path,a.N_stroke,a.circles,a.M,a.N)<5,'闭合后重建误差正常');
+    }
+    // 多笔画导出→导入 往返
+    {
+      const hp=heartPts().map(p=>({x:p[0],y:p[1]}));
+      const sp=spiralPts().map(p=>({x:p[0],y:p[1]}));
+      const anims=[buildAnim(hp,120), buildAnim(sp,120)];
+      const json=exportStrokesJSON(anims);
+      const back=importStrokesJSON(json);
+      T(back.length===2,'v2 往返：2 个笔画');
+      T(back[0].N_stroke===N_SAMP && back[0].N===MAX_PERIOD,'往返：闭合周期正确');
+      T(back[0].M===120,'往返：120 个圆');
+      T(Math.abs(back[0].circles[0].re-anims[0].circles[0].re)<1e-4,'往返：系数一致');
+      T(approxError(back[0].path,back[0].N_stroke,back[0].circles,back[0].M,back[0].N)<1,'往返：重建误差 < 1');
+    }
+    // v1 旧格式导入（顶层 circles + 中文描述 + 无 strokeCount → 自动闭合）
+    {
+      const hp=heartPts().map(p=>({x:p[0],y:p[1]}));
+      const a=buildAnim(hp,120);
+      const v1=JSON.stringify({
+        app:'fourier-drawing', version:1,
+        description:'傅里叶画板导出的圆参数：k=频率，radius=半径，phase=初始相位，re/im=复系数。',
+        sampleCount:N_SAMP,
+        circles:a.circles.map(c=>({k:c.k,radius:c.radius,phase:c.phase,re:c.re,im:c.im})),
+        path:a.path
+      });
+      const back=importStrokesJSON(v1);
+      T(back.length===1,'v1 导入：1 个笔画');
+      T(back[0].N_stroke===N_SAMP && back[0].N===MAX_PERIOD,'v1 导入：自动闭合');
+      T(approxError(back[0].path,back[0].N_stroke,back[0].circles,back[0].M,back[0].N)<1,'v1 导入：重建误差 < 1');
+    }
+    setErr(out.join('\n'));
+    console.log(out.join('\n'));
+  }catch(e){
+    setErr('自测异常：'+e.message);
+  }
+}
+
+updateDrawInfo();
+</script>
+</body>
+</html>
