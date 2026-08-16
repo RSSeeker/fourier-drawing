@@ -497,6 +497,9 @@ static int g_circleCount = 120;
 /* GDI */
 static HDC g_drawMem = NULL, g_animMem = NULL;
 static HBITMAP g_drawBmp = NULL, g_animBmp = NULL;
+static HDC g_cliMem = NULL;   /* 整窗合成缓冲：背景+画布+动画+边框全部合成后一次 BitBlt，
+                                 窗口表面每次绘制只更新一次，杜绝中间态闪烁 */
+static HBITMAP g_cliBmp = NULL;
 static HFONT g_font = NULL;
 static RECT g_drawRect, g_animRect;
 
@@ -1122,6 +1125,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_animMem = CreateCompatibleDC(scr);
         g_animBmp = CreateCompatibleBitmap(scr, CX, CY);
         SelectObject(g_animMem, g_animBmp);
+        g_cliMem = CreateCompatibleDC(scr);
+        g_cliBmp = CreateCompatibleBitmap(scr, CLIENT_W, CLIENT_H);
+        SelectObject(g_cliMem, g_cliBmp);
         ReleaseDC(NULL, scr);
         RECT dr = { 0, 0, CX, CY };
         FillRect(g_drawMem, &dr, (HBRUSH)GetStockObject(WHITE_BRUSH));
@@ -1131,6 +1137,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_animRect.left = ANIM_X; g_animRect.top = ANIM_Y;
         g_animRect.right = ANIM_X + CX; g_animRect.bottom = ANIM_Y + CY;
         g_brushPanel = CreateSolidBrush(RGB(255, 255, 255));
+        {
+            RECT full = { 0, 0, CLIENT_W, CLIENT_H };
+            FillRect(g_cliMem, &full, g_brushPanel);
+        }
         /* 缓存画笔 / 画刷（黑色动画区配色） */
         g_penCircle = CreatePen(PS_SOLID, 1, RGB(110, 140, 190));
         g_penSpoke = CreatePen(PS_SOLID, 1, RGB(90, 100, 120));
@@ -1218,7 +1228,13 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             p.y = clampd((double)(my - DRAW_Y), 0, CY - 1);
             cur_push(p);
             stroke_dot(p.x, p.y, g_penSize, g_penColor);
-            InvalidateRect(h, &g_drawRect, FALSE);
+            /* 只失效笔点的小区域，避免整块画布重绘 */
+            RECT upd;
+            int r = g_penSize / 2 + 2;
+            upd.left = (int)p.x - r; upd.top = (int)p.y - r;
+            upd.right = (int)p.x + r + 1; upd.bottom = (int)p.y + r + 1;
+            IntersectRect(&upd, &upd, &g_drawRect);
+            InvalidateRect(h, &upd, FALSE);
         }
         return 0;
     }
@@ -1232,7 +1248,15 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (dist(p.x - last.x, p.y - last.y) >= 0.5) {
                 cur_push(p);
                 stroke_line(last, p, g_penSize, g_penColor);
-                InvalidateRect(h, &g_drawRect, FALSE);
+                /* 只失效本段线段的包围盒，画画时每帧只重绘一小块 */
+                RECT upd;
+                int r = g_penSize / 2 + 2;
+                upd.left = (int)(last.x < p.x ? last.x : p.x) - r;
+                upd.top = (int)(last.y < p.y ? last.y : p.y) - r;
+                upd.right = (int)(last.x > p.x ? last.x : p.x) + r + 1;
+                upd.bottom = (int)(last.y > p.y ? last.y : p.y) + r + 1;
+                IntersectRect(&upd, &upd, &g_drawRect);
+                InvalidateRect(h, &upd, FALSE);
             }
         }
         return 0;
@@ -1347,27 +1371,28 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         /* 按失效区域判断需要更新的画布：画画时只有绘制区失效，动画区不必重渲染 */
         int needDraw = IntersectRect(&dummy, &paint, &g_drawRect) != 0;
         int needAnim = IntersectRect(&dummy, &paint, &g_animRect) != 0;
-        /* 关键：耗时的动画渲染先写入内存画布，此时屏幕完全不动，
-           避免"先涂背景 → 渲染耗时 → 再画内容"之间出现空白闪烁 */
+        /* 整窗合成（全部写入内存 g_cliMem，屏幕完全不动）：
+           耗时渲染 → 背景 → 画布 → 动画 → 边框 */
         if (needAnim) render_animation(g_animMem, h);
-        /* 一次性呈现：背景（仅失效区）→ 绘制区 → 动画区 */
-        FillRect(dc, &paint, g_brushPanel);
-        if (needDraw) BitBlt(dc, DRAW_X, DRAW_Y, CX, CY, g_drawMem, 0, 0, SRCCOPY);
-        if (needAnim) BitBlt(dc, ANIM_X, ANIM_Y, CX, CY, g_animMem, 0, 0, SRCCOPY);
-        /* 补画画布边框（画布 BitBlt 会覆盖边框位置） */
+        FillRect(g_cliMem, &paint, g_brushPanel);
+        if (needDraw) BitBlt(g_cliMem, DRAW_X, DRAW_Y, CX, CY, g_drawMem, 0, 0, SRCCOPY);
+        if (needAnim) BitBlt(g_cliMem, ANIM_X, ANIM_Y, CX, CY, g_animMem, 0, 0, SRCCOPY);
         if (needDraw || needAnim) {
             HPEN p = CreatePen(PS_SOLID, 2, RGB(140, 152, 168));
-            HGDIOBJ op = SelectObject(dc, p);
-            HGDIOBJ ob = SelectObject(dc, (HGDIOBJ)GetStockObject(NULL_BRUSH));
-            if (needDraw) Rectangle(dc, g_drawRect.left, g_drawRect.top,
+            HGDIOBJ op = SelectObject(g_cliMem, p);
+            HGDIOBJ ob = SelectObject(g_cliMem, (HGDIOBJ)GetStockObject(NULL_BRUSH));
+            if (needDraw) Rectangle(g_cliMem, g_drawRect.left, g_drawRect.top,
                                     g_drawRect.right, g_drawRect.bottom);
-            SelectObject(dc, ob);
-            SelectObject(dc, op);
+            SelectObject(g_cliMem, ob);
+            SelectObject(g_cliMem, op);
             DeleteObject(p);
             HBRUSH bd = CreateSolidBrush(RGB(214, 220, 228));
-            if (needAnim) FrameRect(dc, &g_animRect, bd);
+            if (needAnim) FrameRect(g_cliMem, &g_animRect, bd);
             DeleteObject(bd);
         }
+        /* 一次 BitBlt 呈现失效区：窗口表面每次绘制只更新一次，杜绝中间态闪烁 */
+        BitBlt(dc, paint.left, paint.top, paint.right - paint.left, paint.bottom - paint.top,
+               g_cliMem, paint.left, paint.top, SRCCOPY);
         EndPaint(h, &ps);
         return 0;
     }
@@ -1381,6 +1406,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_drawMem) DeleteDC(g_drawMem);
         if (g_animBmp) DeleteObject(g_animBmp);
         if (g_animMem) DeleteDC(g_animMem);
+        if (g_cliBmp) DeleteObject(g_cliBmp);
+        if (g_cliMem) DeleteDC(g_cliMem);
         if (g_penCircle) DeleteObject(g_penCircle);
         if (g_penSpoke) DeleteObject(g_penSpoke);
         if (g_penRef) DeleteObject(g_penRef);
