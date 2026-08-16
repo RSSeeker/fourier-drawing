@@ -1228,11 +1228,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             p.y = clampd((double)(my - DRAW_Y), 0, CY - 1);
             cur_push(p);
             stroke_dot(p.x, p.y, g_penSize, g_penColor);
-            /* 只失效笔点的小区域，避免整块画布重绘 */
+            /* 只失效笔点的小区域（画布坐标 → 客户区坐标需加画布偏移） */
             RECT upd;
             int r = g_penSize / 2 + 2;
-            upd.left = (int)p.x - r; upd.top = (int)p.y - r;
-            upd.right = (int)p.x + r + 1; upd.bottom = (int)p.y + r + 1;
+            upd.left = (int)p.x - r + DRAW_X; upd.top = (int)p.y - r + DRAW_Y;
+            upd.right = (int)p.x + r + 1 + DRAW_X; upd.bottom = (int)p.y + r + 1 + DRAW_Y;
             IntersectRect(&upd, &upd, &g_drawRect);
             InvalidateRect(h, &upd, FALSE);
         }
@@ -1248,13 +1248,13 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (dist(p.x - last.x, p.y - last.y) >= 0.5) {
                 cur_push(p);
                 stroke_line(last, p, g_penSize, g_penColor);
-                /* 只失效本段线段的包围盒，画画时每帧只重绘一小块 */
+                /* 只失效本段线段的包围盒（画布坐标 → 客户区坐标需加画布偏移） */
                 RECT upd;
                 int r = g_penSize / 2 + 2;
-                upd.left = (int)(last.x < p.x ? last.x : p.x) - r;
-                upd.top = (int)(last.y < p.y ? last.y : p.y) - r;
-                upd.right = (int)(last.x > p.x ? last.x : p.x) + r + 1;
-                upd.bottom = (int)(last.y > p.y ? last.y : p.y) + r + 1;
+                upd.left = (int)(last.x < p.x ? last.x : p.x) - r + DRAW_X;
+                upd.top = (int)(last.y < p.y ? last.y : p.y) - r + DRAW_Y;
+                upd.right = (int)(last.x > p.x ? last.x : p.x) + r + 1 + DRAW_X;
+                upd.bottom = (int)(last.y > p.y ? last.y : p.y) + r + 1 + DRAW_Y;
                 IntersectRect(&upd, &upd, &g_drawRect);
                 InvalidateRect(h, &upd, FALSE);
             }
