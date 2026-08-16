@@ -487,15 +487,15 @@ static StrokeList g_strokes = { NULL, 0, 0 };
 static Pt *g_cur = NULL; static int g_curN = 0, g_curCap = 0;
 static int g_drawing = 0;
 static COLORREF g_penColor = RGB(17, 24, 39);
-static int g_penSize = 4;
+static int g_penSize = 5;
 static COLORREF g_custom[16] = { 0 };
 
 static StrokeAnim g_anims[MAX_ANIM_STROKES];
 static StrokeAnim g_scratch[MAX_ANIM_STROKES];  /* 导入解析暂存（大结构，避免栈溢出） */
 static int g_animCount = 0;   /* 0 = 无动画 */
 static int g_playing = 1;
-static double g_speed = 0.35;
-static int g_circleCount = 120;
+static double g_speed = 0.50;
+static int g_circleCount = 100;
 
 /* GDI */
 static HDC g_drawMem = NULL, g_animMem = NULL;
@@ -1191,21 +1191,21 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_btnClear   = mk_btn(h, IDC_BTN_CLEAR, L"清空", 354, ROW1_Y, 56);
         g_btnColor   = mk_btn(h, IDC_BTN_COLOR, L"颜色", 414, ROW1_Y, 56);
         mk_static(h, IDC_LBL_PENSIZE, L"粗细", 474, ROW1_Y, 36, 0);
-        g_tbPenSize  = mk_tb(h, IDC_TB_PENSIZE, 514, ROW1_Y, 110, 1, 20, 4);
-        g_lblPenSize = mk_static(h, 0, L"4", 628, ROW1_Y, 40, 0);
-        g_spinPenSize = mk_spin(h, IDC_SPIN_PENSIZE, g_lblPenSize, 672, ROW1_Y, 1, 20, 4);
+        g_tbPenSize  = mk_tb(h, IDC_TB_PENSIZE, 514, ROW1_Y, 110, 1, 20, 5);
+        g_lblPenSize = mk_static(h, 0, L"5", 628, ROW1_Y, 40, 0);
+        g_spinPenSize = mk_spin(h, IDC_SPIN_PENSIZE, g_lblPenSize, 672, ROW1_Y, 1, 20, 5);
         g_lblDrawInfo = mk_static(h, IDC_LBL_DRAWINFO, L"笔画 0", 690, ROW1_Y, 530, 0);
         /* 第二行控件 */
         g_btnPlay    = mk_btn(h, IDC_BTN_PLAY, L"暂停", 12, ROW2_Y, 88);
         g_btnReset   = mk_btn(h, IDC_BTN_RESET, L"重置", 104, ROW2_Y, 66);
         mk_static(h, 0, L"圈数", 178, ROW2_Y, 38, 0);
-        g_tbCircles  = mk_tb(h, IDC_TB_CIRCLES, 220, ROW2_Y, 130, 1, MAX_CIRCLES, 120);
-        g_lblCircles = mk_static(h, 0, L"120", 354, ROW2_Y, 44, 0);
-        g_spinCircles = mk_spin(h, IDC_SPIN_CIRCLES, g_lblCircles, 402, ROW2_Y, 1, MAX_CIRCLES, 120);
+        g_tbCircles  = mk_tb(h, IDC_TB_CIRCLES, 220, ROW2_Y, 130, 1, MAX_CIRCLES, 100);
+        g_lblCircles = mk_static(h, 0, L"100", 354, ROW2_Y, 44, 0);
+        g_spinCircles = mk_spin(h, IDC_SPIN_CIRCLES, g_lblCircles, 402, ROW2_Y, 1, MAX_CIRCLES, 100);
         mk_static(h, 0, L"速度", 426, ROW2_Y, 38, 0);
-        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 468, ROW2_Y, 130, 1, 200, 35);
-        g_lblSpeed   = mk_static(h, 0, L"0.35", 602, ROW2_Y, 44, 0);
-        g_spinSpeed  = mk_spin(h, IDC_SPIN_SPEED, g_lblSpeed, 650, ROW2_Y, 1, 200, 35);
+        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 468, ROW2_Y, 130, 1, 200, 50);
+        g_lblSpeed   = mk_static(h, 0, L"0.50", 602, ROW2_Y, 44, 0);
+        g_spinSpeed  = mk_spin(h, IDC_SPIN_SPEED, g_lblSpeed, 650, ROW2_Y, 1, 200, 50);
         mk_chk(h, IDC_CHK_CIRCLES, L"圆", 676, ROW2_Y, 52, 1);
         mk_chk(h, IDC_CHK_SPOKES, L"连线", 732, ROW2_Y, 60, 1);
         mk_chk(h, IDC_CHK_TRAIL, L"轨迹", 796, ROW2_Y, 60, 1);
