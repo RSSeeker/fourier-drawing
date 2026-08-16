@@ -30,7 +30,7 @@ jobs:
       - name: Self-test
         shell: pwsh
         run: |
-          .\fourier-drawing.exe --selftest
+          & .\fourier-drawing.exe --selftest | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "selftest failed: $LASTEXITCODE" }
           Get-Content selftest.txt | Select-Object -Last 3
 
