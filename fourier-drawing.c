@@ -62,7 +62,7 @@
 #define N_SAMP 2048                  /* 每笔画重采样点数 */
 #define N_EXT (N_SAMP / 16)          /* 闭合返回段样本数（消除开放笔画的吉布斯振荡） */
 #define MAX_PERIOD (N_SAMP + N_EXT)  /* 动画周期上限 */
-#define MAX_CIRCLES 400              /* 最大圆数量（每个笔画） */
+#define MAX_CIRCLES 999              /* 最大圆数量（每个笔画） */
 #define MAX_ANIM_STROKES 32          /* 最多同时动画的笔画数 */
 #define FADE_LEVELS 32               /* 轨迹渐隐色阶数 */
 #define DRAW_X MARGIN
@@ -1126,10 +1126,10 @@ static HWND mk_static(HWND h, int id, const wchar_t *text, int x, int y, int w, 
         WS_CHILD | WS_VISIBLE | SS_LEFT | extra,
         x, y, w, ROW_H, h, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
 }
-/* 上下箭头微调控件：贴在数字标签右侧，步进 1；位置变化经 WM_NOTIFY(UDN_DELTAPOS) 交给父窗口 */
+/* 上下箭头微调控件：手动定位在数字标签右侧（不用 UDS_ALIGNRIGHT，它会把箭头盖在标签上） */
 static HWND mk_spin(HWND h, int id, HWND buddy, int x, int y, int lo, int hi, int val) {
     HWND sp = CreateWindowExW(0, UPDOWN_CLASSW, NULL,
-        WS_CHILD | WS_VISIBLE | UDS_ARROWKEYS | UDS_ALIGNRIGHT | UDS_NOTHOUSANDS,
+        WS_CHILD | WS_VISIBLE | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
         x, y, 16, ROW_H, h, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
     if (buddy) SendMessageW(sp, UDM_SETBUDDY, (WPARAM)buddy, 0);
     SendMessageW(sp, UDM_SETRANGE32, lo, hi);
@@ -1192,27 +1192,27 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_btnColor   = mk_btn(h, IDC_BTN_COLOR, L"颜色", 414, ROW1_Y, 56);
         mk_static(h, IDC_LBL_PENSIZE, L"粗细", 474, ROW1_Y, 36, 0);
         g_tbPenSize  = mk_tb(h, IDC_TB_PENSIZE, 514, ROW1_Y, 110, 1, 20, 4);
-        g_lblPenSize = mk_static(h, 0, L"4", 628, ROW1_Y, 36, 0);
-        g_spinPenSize = mk_spin(h, IDC_SPIN_PENSIZE, g_lblPenSize, 666, ROW1_Y, 1, 20, 4);
+        g_lblPenSize = mk_static(h, 0, L"4", 628, ROW1_Y, 40, 0);
+        g_spinPenSize = mk_spin(h, IDC_SPIN_PENSIZE, g_lblPenSize, 672, ROW1_Y, 1, 20, 4);
         g_lblDrawInfo = mk_static(h, IDC_LBL_DRAWINFO, L"笔画 0", 690, ROW1_Y, 530, 0);
         /* 第二行控件 */
         g_btnPlay    = mk_btn(h, IDC_BTN_PLAY, L"暂停", 12, ROW2_Y, 88);
         g_btnReset   = mk_btn(h, IDC_BTN_RESET, L"重置", 104, ROW2_Y, 66);
         mk_static(h, 0, L"圈数", 178, ROW2_Y, 38, 0);
         g_tbCircles  = mk_tb(h, IDC_TB_CIRCLES, 220, ROW2_Y, 130, 1, MAX_CIRCLES, 120);
-        g_lblCircles = mk_static(h, 0, L"120", 354, ROW2_Y, 36, 0);
-        g_spinCircles = mk_spin(h, IDC_SPIN_CIRCLES, g_lblCircles, 392, ROW2_Y, 1, MAX_CIRCLES, 120);
-        mk_static(h, 0, L"速度", 416, ROW2_Y, 38, 0);
-        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 458, ROW2_Y, 130, 2, 200, 35);
-        g_lblSpeed   = mk_static(h, 0, L"0.35", 592, ROW2_Y, 40, 0);
-        g_spinSpeed  = mk_spin(h, IDC_SPIN_SPEED, g_lblSpeed, 634, ROW2_Y, 2, 200, 35);
-        mk_chk(h, IDC_CHK_CIRCLES, L"圆", 660, ROW2_Y, 52, 1);
-        mk_chk(h, IDC_CHK_SPOKES, L"连线", 716, ROW2_Y, 60, 1);
-        mk_chk(h, IDC_CHK_TRAIL, L"轨迹", 780, ROW2_Y, 60, 1);
-        mk_chk(h, IDC_CHK_REF, L"参考线", 844, ROW2_Y, 70, 0);
-        mk_chk(h, IDC_CHK_FADE, L"渐隐", 918, ROW2_Y, 52, 0);
-        g_btnExport = mk_btn(h, IDC_BTN_EXPORT, L"导出参数", 978, ROW2_Y, 104);
-        g_btnImport = mk_btn(h, IDC_BTN_IMPORT, L"载入参数", 1090, ROW2_Y, 104);
+        g_lblCircles = mk_static(h, 0, L"120", 354, ROW2_Y, 44, 0);
+        g_spinCircles = mk_spin(h, IDC_SPIN_CIRCLES, g_lblCircles, 402, ROW2_Y, 1, MAX_CIRCLES, 120);
+        mk_static(h, 0, L"速度", 426, ROW2_Y, 38, 0);
+        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 468, ROW2_Y, 130, 1, 200, 35);
+        g_lblSpeed   = mk_static(h, 0, L"0.35", 602, ROW2_Y, 44, 0);
+        g_spinSpeed  = mk_spin(h, IDC_SPIN_SPEED, g_lblSpeed, 650, ROW2_Y, 1, 200, 35);
+        mk_chk(h, IDC_CHK_CIRCLES, L"圆", 676, ROW2_Y, 52, 1);
+        mk_chk(h, IDC_CHK_SPOKES, L"连线", 732, ROW2_Y, 60, 1);
+        mk_chk(h, IDC_CHK_TRAIL, L"轨迹", 796, ROW2_Y, 60, 1);
+        mk_chk(h, IDC_CHK_REF, L"参考线", 860, ROW2_Y, 70, 0);
+        mk_chk(h, IDC_CHK_FADE, L"渐隐", 934, ROW2_Y, 52, 0);
+        g_btnExport = mk_btn(h, IDC_BTN_EXPORT, L"导出参数", 994, ROW2_Y, 104);
+        g_btnImport = mk_btn(h, IDC_BTN_IMPORT, L"载入参数", 1106, ROW2_Y, 104);
         g_status = mk_static(h, IDC_STATUS,
             L"提示：在左侧画板绘制图案（可画多个笔画），再点击「生成傅里叶动画」；导出/载入为 JSON 圆参数。",
             12, STATUS_Y, CLIENT_W - 24, SS_END_ELLIPSIS);
@@ -1396,7 +1396,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 InvalidateRect(h, &g_animRect, FALSE);
             } else if (id == IDC_SPIN_SPEED) {
                 int v = up->iPos + up->iDelta;
-                if (v < 2) v = 2;
+                if (v < 1) v = 1;
                 if (v > 200) v = 200;
                 g_speed = v / 100.0;
                 SendMessageW(g_tbSpeed, TBM_SETPOS, TRUE, v);

@@ -59,8 +59,8 @@ input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--border
     <div class="controls">
       <button id="btnPlay" class="primary">⏸ 暂停</button>
       <button id="btnReset">↺ 重置动画</button>
-      <label class="row">圈数<input type="range" id="numCircles" min="1" max="400" step="1" value="120" /><span id="numCirclesVal">120</span></label>
-      <label class="row">速度<input type="range" id="speed" min="0.02" max="2" step="0.01" value="0.35" /><span id="speedVal">0.35</span></label>
+      <label class="row">圈数<input type="range" id="numCircles" min="1" max="999" step="1" value="120" /><span id="numCirclesVal">120</span></label>
+      <label class="row">速度<input type="range" id="speed" min="0.01" max="2" step="0.01" value="0.35" /><span id="speedVal">0.35</span></label>
       <label class="row"><input type="checkbox" id="showCircles" checked />圆</label>
       <label class="row"><input type="checkbox" id="showSpokes" checked />连线</label>
       <label class="row"><input type="checkbox" id="showTrail" checked />轨迹</label>
@@ -90,7 +90,7 @@ input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--border
 const N_SAMP=2048;                  // 每笔画重采样点数
 const N_EXT=N_SAMP/16|0;            // 闭合返回段样本数（128）
 const MAX_PERIOD=N_SAMP+N_EXT;      // 动画周期上限（2176）
-const MAX_CIRCLES=400;
+const MAX_CIRCLES=999;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
 // 每个笔画的轨迹配色（黑色动画区上的亮色系，保证黑底可见）
@@ -525,7 +525,7 @@ function applyImportedAnims(anims){
     if(a.path.length) strokes.push({pts:a.path.map(p=>({x:p[0],y:p[1]})), color:'#111827', size:4});
   }
   redrawDraw();
-  const c=clamp(m0,1,400);
+  const c=clamp(m0,1,999);
   $('numCircles').value=c;
   $('numCirclesVal').textContent=c;
   setStatus(`已载入 ${anims.length} 个笔画（每笔 ${m0} 个圆），动画已开始 ✓`);
