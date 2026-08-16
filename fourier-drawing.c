@@ -1103,6 +1103,9 @@ static HWND mk_tb(HWND h, int id, int x, int y, int w, int lo, int hi, int val) 
         x, y, w, ROW_H, h, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
     SendMessageW(tb, TBM_SETRANGE, TRUE, MAKELONG(lo, hi));
     SendMessageW(tb, TBM_SETPOS, TRUE, val);
+    /* 步进：方向键/点击滑轨均以 1 为间隔（圈数=1，速度=0.01，笔粗=1） */
+    SendMessageW(tb, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(tb, TBM_SETPAGESIZE, 0, 1);
     return tb;
 }
 static HWND mk_static(HWND h, int id, const wchar_t *text, int x, int y, int w, DWORD extra) {
