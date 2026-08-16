@@ -98,6 +98,9 @@
 #define IDC_LBL_DRAWINFO 119
 #define IDC_STATUS      120
 #define IDC_CHK_FADE    121
+#define IDC_SPIN_CIRCLES 122
+#define IDC_SPIN_SPEED  123
+#define IDC_SPIN_PENSIZE 124
 
 /* ---------------- 基础类型 ---------------- */
 typedef struct { double x, y; } Pt;
@@ -514,6 +517,7 @@ static HPEN g_fadePens[8][FADE_LEVELS];  /* 渐隐色阶 */
 static HWND g_btnCompute, g_btnHeart, g_btnSpiral, g_btnUndo, g_btnClear, g_btnColor;
 static HWND g_btnPlay, g_btnReset, g_tbCircles, g_tbSpeed, g_tbPenSize;
 static HWND g_lblCircles, g_lblSpeed, g_lblPenSize, g_lblDrawInfo, g_status;
+static HWND g_spinCircles, g_spinSpeed, g_spinPenSize;   /* 数字旁的上下箭头微调 */
 static HWND g_btnExport, g_btnImport;
 
 static void set_status(const wchar_t *txt) { SetWindowTextW(g_status, txt); }
@@ -971,6 +975,15 @@ static void do_import(HWND h) {
     redraw_all_strokes();
     set_play_label();
     int m0 = g_animCount > 0 ? g_anims[0].M : 0;
+    /* 同步圈数滑块 / 标签 / 上下箭头与导入的实际圈数一致 */
+    if (g_animCount > 0) {
+        g_circleCount = m0;
+        SendMessageW(g_tbCircles, TBM_SETPOS, TRUE, m0);
+        SendMessageW(g_spinCircles, UDM_SETPOS32, 0, m0);
+        wchar_t b[16];
+        swprintf(b, 16, L"%d", m0);
+        SetWindowTextW(g_lblCircles, b);
+    }
     wchar_t msg[160];
     swprintf(msg, 160, L"已载入 %d 个笔画（每笔 %d 个圆），动画已开始", g_animCount, m0);
     set_status(msg);
@@ -1113,6 +1126,16 @@ static HWND mk_static(HWND h, int id, const wchar_t *text, int x, int y, int w, 
         WS_CHILD | WS_VISIBLE | SS_LEFT | extra,
         x, y, w, ROW_H, h, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
 }
+/* 上下箭头微调控件：贴在数字标签右侧，步进 1；位置变化经 WM_NOTIFY(UDN_DELTAPOS) 交给父窗口 */
+static HWND mk_spin(HWND h, int id, HWND buddy, int x, int y, int lo, int hi, int val) {
+    HWND sp = CreateWindowExW(0, UPDOWN_CLASSW, NULL,
+        WS_CHILD | WS_VISIBLE | UDS_ARROWKEYS | UDS_ALIGNRIGHT | UDS_NOTHOUSANDS,
+        x, y, 16, ROW_H, h, (HMENU)(INT_PTR)id, GetModuleHandleW(NULL), NULL);
+    if (buddy) SendMessageW(sp, UDM_SETBUDDY, (WPARAM)buddy, 0);
+    SendMessageW(sp, UDM_SETRANGE32, lo, hi);
+    SendMessageW(sp, UDM_SETPOS32, 0, val);
+    return sp;
+}
 
 /* ============================================================================
    窗口过程
@@ -1170,23 +1193,26 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         mk_static(h, IDC_LBL_PENSIZE, L"粗细", 474, ROW1_Y, 36, 0);
         g_tbPenSize  = mk_tb(h, IDC_TB_PENSIZE, 514, ROW1_Y, 110, 1, 20, 4);
         g_lblPenSize = mk_static(h, 0, L"4", 628, ROW1_Y, 36, 0);
+        g_spinPenSize = mk_spin(h, IDC_SPIN_PENSIZE, g_lblPenSize, 666, ROW1_Y, 1, 20, 4);
         g_lblDrawInfo = mk_static(h, IDC_LBL_DRAWINFO, L"笔画 0", 690, ROW1_Y, 530, 0);
         /* 第二行控件 */
         g_btnPlay    = mk_btn(h, IDC_BTN_PLAY, L"暂停", 12, ROW2_Y, 88);
         g_btnReset   = mk_btn(h, IDC_BTN_RESET, L"重置", 104, ROW2_Y, 66);
         mk_static(h, 0, L"圈数", 178, ROW2_Y, 38, 0);
         g_tbCircles  = mk_tb(h, IDC_TB_CIRCLES, 220, ROW2_Y, 130, 1, MAX_CIRCLES, 120);
-        g_lblCircles = mk_static(h, 0, L"120", 354, ROW2_Y, 40, 0);
-        mk_static(h, 0, L"速度", 404, ROW2_Y, 38, 0);
-        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 446, ROW2_Y, 130, 2, 200, 35);
-        g_lblSpeed   = mk_static(h, 0, L"0.35", 580, ROW2_Y, 44, 0);
-        mk_chk(h, IDC_CHK_CIRCLES, L"圆", 636, ROW2_Y, 52, 1);
-        mk_chk(h, IDC_CHK_SPOKES, L"连线", 692, ROW2_Y, 60, 1);
-        mk_chk(h, IDC_CHK_TRAIL, L"轨迹", 756, ROW2_Y, 60, 1);
-        mk_chk(h, IDC_CHK_REF, L"参考线", 820, ROW2_Y, 70, 0);
-        mk_chk(h, IDC_CHK_FADE, L"渐隐", 894, ROW2_Y, 52, 0);
-        g_btnExport = mk_btn(h, IDC_BTN_EXPORT, L"导出参数", 954, ROW2_Y, 104);
-        g_btnImport = mk_btn(h, IDC_BTN_IMPORT, L"载入参数", 1066, ROW2_Y, 104);
+        g_lblCircles = mk_static(h, 0, L"120", 354, ROW2_Y, 36, 0);
+        g_spinCircles = mk_spin(h, IDC_SPIN_CIRCLES, g_lblCircles, 392, ROW2_Y, 1, MAX_CIRCLES, 120);
+        mk_static(h, 0, L"速度", 416, ROW2_Y, 38, 0);
+        g_tbSpeed    = mk_tb(h, IDC_TB_SPEED, 458, ROW2_Y, 130, 2, 200, 35);
+        g_lblSpeed   = mk_static(h, 0, L"0.35", 592, ROW2_Y, 40, 0);
+        g_spinSpeed  = mk_spin(h, IDC_SPIN_SPEED, g_lblSpeed, 634, ROW2_Y, 2, 200, 35);
+        mk_chk(h, IDC_CHK_CIRCLES, L"圆", 660, ROW2_Y, 52, 1);
+        mk_chk(h, IDC_CHK_SPOKES, L"连线", 716, ROW2_Y, 60, 1);
+        mk_chk(h, IDC_CHK_TRAIL, L"轨迹", 780, ROW2_Y, 60, 1);
+        mk_chk(h, IDC_CHK_REF, L"参考线", 844, ROW2_Y, 70, 0);
+        mk_chk(h, IDC_CHK_FADE, L"渐隐", 918, ROW2_Y, 52, 0);
+        g_btnExport = mk_btn(h, IDC_BTN_EXPORT, L"导出参数", 978, ROW2_Y, 104);
+        g_btnImport = mk_btn(h, IDC_BTN_IMPORT, L"载入参数", 1090, ROW2_Y, 104);
         g_status = mk_static(h, IDC_STATUS,
             L"提示：在左侧画板绘制图案（可画多个笔画），再点击「生成傅里叶动画」；导出/载入为 JSON 圆参数。",
             12, STATUS_Y, CLIENT_W - 24, SS_END_ELLIPSIS);
@@ -1328,6 +1354,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_circleCount = pos;
             swprintf(b, 16, L"%d", pos);
             SetWindowTextW(g_lblCircles, b);
+            SendMessageW(g_spinCircles, UDM_SETPOS32, 0, pos);
             if (g_animCount > 0) {
                 rebuild_stroke_anims();
                 for (int i = 0; i < g_animCount; i++) g_anims[i].n = 0;
@@ -1337,12 +1364,56 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_speed = pos / 100.0;
             swprintf(b, 16, L"%.2f", g_speed);
             SetWindowTextW(g_lblSpeed, b);
+            SendMessageW(g_spinSpeed, UDM_SETPOS32, 0, pos);
         } else if (id == IDC_TB_PENSIZE) {
             g_penSize = pos;
             swprintf(b, 16, L"%d", pos);
             SetWindowTextW(g_lblPenSize, b);
+            SendMessageW(g_spinPenSize, UDM_SETPOS32, 0, pos);
         }
         return 0;
+    }
+
+    /* 上下箭头微调（UpDown 控件） */
+    case WM_NOTIFY: {
+        NMHDR *nm = (NMHDR *)l;
+        if (nm->code == UDN_DELTAPOS) {
+            NMUPDOWN *up = (NMUPDOWN *)l;
+            int id = (int)w;
+            wchar_t b[16];
+            if (id == IDC_SPIN_CIRCLES) {
+                int v = up->iPos + up->iDelta;
+                if (v < 1) v = 1;
+                if (v > MAX_CIRCLES) v = MAX_CIRCLES;
+                g_circleCount = v;
+                SendMessageW(g_tbCircles, TBM_SETPOS, TRUE, v);
+                swprintf(b, 16, L"%d", v);
+                SetWindowTextW(g_lblCircles, b);
+                if (g_animCount > 0) {
+                    rebuild_stroke_anims();
+                    for (int i = 0; i < g_animCount; i++) g_anims[i].n = 0;
+                }
+                InvalidateRect(h, &g_animRect, FALSE);
+            } else if (id == IDC_SPIN_SPEED) {
+                int v = up->iPos + up->iDelta;
+                if (v < 2) v = 2;
+                if (v > 200) v = 200;
+                g_speed = v / 100.0;
+                SendMessageW(g_tbSpeed, TBM_SETPOS, TRUE, v);
+                swprintf(b, 16, L"%.2f", g_speed);
+                SetWindowTextW(g_lblSpeed, b);
+            } else if (id == IDC_SPIN_PENSIZE) {
+                int v = up->iPos + up->iDelta;
+                if (v < 1) v = 1;
+                if (v > 20) v = 20;
+                g_penSize = v;
+                SendMessageW(g_tbPenSize, TBM_SETPOS, TRUE, v);
+                swprintf(b, 16, L"%d", v);
+                SetWindowTextW(g_lblPenSize, b);
+            }
+            return 0;
+        }
+        break;
     }
 
     case WM_SETCURSOR:
@@ -1782,7 +1853,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR pCmdLine, int nShow)
 
     INITCOMMONCONTROLSEX icc;
     icc.dwSize = sizeof(icc);
-    icc.dwICC = ICC_BAR_CLASSES;
+    icc.dwICC = ICC_BAR_CLASSES | ICC_UPDOWN_CLASS;
     InitCommonControlsEx(&icc);
 
     WNDCLASSW wc;
